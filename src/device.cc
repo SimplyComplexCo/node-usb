@@ -11,7 +11,7 @@
 
 static Nan::Persistent<v8::FunctionTemplate> device_constructor;
 
-Handle<Object> makeBuffer(const unsigned char* ptr, unsigned length) {
+Local<Object> makeBuffer(const unsigned char* ptr, unsigned length) {
 	return Nan::NewBuffer((char*) ptr, (uint32_t) length).ToLocalChecked();
 }
 
@@ -28,26 +28,25 @@ Device::~Device(){
 }
 
 // Map pinning each libusb_device to a particular V8 instance
-std::map<libusb_device*, Nan::WeakCallbackInfo<std::pair<v8::Value, libusb_device*>>*> Device::byPtr;
+std::map<libusb_device*, Nan::Persistent<Object>> Device::byPtr;
 
-template<typename T>
-void DeviceWeakCallback (const Nan::WeakCallbackInfo<std::pair<v8::Value, libusb_device*>> &data) {
-	Device::unpin(data.GetParameter()->second);
+void DeviceWeakCallback(const Nan::WeakCallbackInfo<libusb_device> &data)  {
+	Device::unpin(data.GetParameter());
 }
 
 // Get a V8 instance for a libusb_device: either the existing one from the map,
 // or create a new one and add it to the map.
-Local<Value> Device::get(libusb_device* dev){
+Local<Object> Device::get(libusb_device* dev){
 	auto it = byPtr.find(dev);
 	if (it != byPtr.end()){
-		return it->second->GetParameter()->first.ToUint32();
-		//return Nan::New<v8::Value>(it->second->GetParameter()->first).ToLocalChecked();
-	}else{
-		Local<Object> obj = Nan::New<ObjectTemplate>(device_constructor)->NewInstance();
- 		Nan::Persistent<Object> v(obj);
-		auto p = v.SetWeak(dev, DeviceWeakCallback, WeakCallbackType::kParameter);
-		byPtr.insert(std::make_pair(dev, std::make_pair(p, dev)));
-		return v;
+		return Nan::New(it->second);
+	} else {
+		Local<FunctionTemplate> constructorHandle = Nan::New<v8::FunctionTemplate>(device_constructor);
+		Local<Value> argv[1] = { EXTERNAL_NEW(new Device(dev)) };
+		Local<Object> obj = constructorHandle->GetFunction()->NewInstance(1, argv);
+		auto it = byPtr.emplace(dev, obj).first;
+		it->second.SetWeak(dev, DeviceWeakCallback, Nan::WeakCallbackType::kParameter);
+		return obj;
 	}
 }
 
@@ -90,7 +89,7 @@ static NAN_METHOD(deviceConstructor) {
 	CHECK_USB(ret);
 	Local<Array> array = Nan::New<Array>(ret);
 	for (int i = 0; i < ret; ++ i) {
-		Nan::Set(array, i, Nan::New(port_numbers[i]));
+		array->Set(i, Nan::New(port_numbers[i]));
 	}
 
 	info.This()->ForceSet(V8SYM("portNumbers"), array, CONST_PROP);
@@ -125,14 +124,14 @@ NAN_METHOD(Device_GetConfigDescriptor) {
 		int numAltSettings = cdesc->interface[idxInterface].num_altsetting;
 
 		Local<Array> v8altsettings = Nan::New<Array>(numAltSettings);
-		Nan::Set(v8interfaces, idxInterface, v8altsettings);
+		v8interfaces->Set(idxInterface, v8altsettings);
 
 		for (int idxAltSetting = 0; idxAltSetting < numAltSettings; idxAltSetting++) {
 			const libusb_interface_descriptor& idesc =
 				cdesc->interface[idxInterface].altsetting[idxAltSetting];
 
 			Local<Object> v8idesc = Nan::New<Object>();
-			Nan::Set(v8altsettings, idxAltSetting, v8idesc);
+			v8altsettings->Set(idxAltSetting, v8idesc);
 
 			STRUCT_TO_V8(v8idesc, idesc, bLength)
 			STRUCT_TO_V8(v8idesc, idesc, bDescriptorType)
@@ -152,7 +151,7 @@ NAN_METHOD(Device_GetConfigDescriptor) {
 				const libusb_endpoint_descriptor& edesc = idesc.endpoint[idxEndpoint];
 
 				Local<Object> v8edesc = Nan::New<Object>();
-				Nan::Set(v8endpoints, idxEndpoint, v8edesc);
+				v8endpoints->Set(idxEndpoint, v8edesc);
 
 				STRUCT_TO_V8(v8edesc, edesc, bLength)
 				STRUCT_TO_V8(v8edesc, edesc, bDescriptorType)
@@ -194,11 +193,11 @@ NAN_METHOD(Device_Close) {
 struct Req{
 	uv_work_t req;
 	Device* device;
-	Persistent<Function> callback;
+	Nan::Persistent<Function> callback;
 	int errcode;
 
-	void submit(Device* d, Handle<Function> cb, uv_work_cb backend, uv_work_cb after){
-		callback.Reset(Isolate::GetCurrent(), cb);
+	void submit(Device* d, Local<Function> cb, uv_work_cb backend, uv_work_cb after){
+		callback.Reset(cb);
 		device = d;
 		device->ref();
 		req.data = this;
@@ -206,21 +205,22 @@ struct Req{
 	}
 
 	static void default_after(uv_work_t *req){
+		Nan::HandleScope scope;
 		auto baton = (Req*) req->data;
 
 		auto device = baton->device->handle();
 		baton->device->unref();
 
 		if (!Nan::New(baton->callback).IsEmpty()) {
-			Handle<Value> error = Nan::Undefined();
+			Local<Value> error = Nan::Undefined();
 			if (baton->errcode < 0){
 				error = libusbException(baton->errcode);
 			}
-			Handle<Value> argv[1] = {error};
-			TryCatch try_catch;
+			Local<Value> argv[1] = {error};
+			Nan::TryCatch try_catch;
 			Nan::MakeCallback(device, Nan::New(baton->callback), 1, argv);
 			if (try_catch.HasCaught()) {
-				FatalException(try_catch);
+				Nan::FatalException(try_catch);
 			}
 			baton->callback.Reset();
 		}
@@ -328,7 +328,29 @@ struct Device_SetInterface: Req{
 	}
 };
 
-void Device::Init(Handle<Object> target){
+struct Device_SetConfiguration: Req{
+	int desired;
+
+	static NAN_METHOD(begin){
+		ENTER_METHOD(Device, 1);
+		CHECK_OPEN();
+		int desired;
+		INT_ARG(desired, 0);
+		CALLBACK_ARG(1);
+		auto baton = new Device_SetConfiguration;
+		baton->desired = desired;
+		baton->submit(self, callback, &backend, &default_after);
+		info.GetReturnValue().Set(Nan::Undefined());
+	}
+
+	static void backend(uv_work_t *req){
+		auto baton = (Device_SetConfiguration*) req->data;
+		baton->errcode = libusb_set_configuration(
+			baton->device->device_handle, baton->desired);
+	}
+};
+
+void Device::Init(Local<Object> target){
 	Local<FunctionTemplate> tpl = Nan::New<FunctionTemplate>(deviceConstructor);
 	tpl->SetClassName(Nan::New("Device").ToLocalChecked());
 	tpl->InstanceTemplate()->SetInternalFieldCount(1);
@@ -341,11 +363,12 @@ void Device::Init(Handle<Object> target){
 	Nan::SetPrototypeMethod(tpl, "__claimInterface", Device_ClaimInterface);
 	Nan::SetPrototypeMethod(tpl, "__releaseInterface", Device_ReleaseInterface::begin);
 	Nan::SetPrototypeMethod(tpl, "__setInterface", Device_SetInterface::begin);
+	Nan::SetPrototypeMethod(tpl, "__setConfiguration", Device_SetConfiguration::begin);
 
 	Nan::SetPrototypeMethod(tpl, "__isKernelDriverActive", IsKernelDriverActive);
 	Nan::SetPrototypeMethod(tpl, "__detachKernelDriver", DetachKernelDriver);
 	Nan::SetPrototypeMethod(tpl, "__attachKernelDriver", AttachKernelDriver);
 
 	device_constructor.Reset(tpl);
-	Nan::Set(target, Nan::New("Device").ToLocalChecked(), Nan::GetFunction(tpl).ToLocalChecked());
+	target->Set(Nan::New("Device").ToLocalChecked(), tpl->GetFunction());
 }

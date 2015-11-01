@@ -5,7 +5,7 @@ NAN_METHOD(SetDebugLevel);
 NAN_METHOD(GetDeviceList);
 NAN_METHOD(EnableHotplugEvents);
 NAN_METHOD(DisableHotplugEvents);
-void initConstants(Handle<Object> target);
+void initConstants(Local<Object> target);
 
 libusb_context* usb_context;
 
@@ -56,7 +56,8 @@ void USBThreadFn(void*){
 }
 #endif
 
-extern "C" void Initialize(Handle<Object> target) {
+extern "C" void Initialize(Local<Object> target) {
+	Nan::HandleScope scope;
 
 	// Initialize libusb. On error, halt initialization.
 	int res = libusb_init(&usb_context);
@@ -93,14 +94,17 @@ extern "C" void Initialize(Handle<Object> target) {
 NODE_MODULE(usb_bindings, Initialize)
 
 NAN_METHOD(SetDebugLevel) {
+	Nan::HandleScope scope;
 	if (info.Length() != 1 || !info[0]->IsUint32() || info[0]->Uint32Value() > 4) {
 		THROW_BAD_ARGS("Usb::SetDebugLevel argument is invalid. [uint:[0-4]]!")
 	}
 
 	libusb_set_debug(usb_context, info[0]->Uint32Value());
+	info.GetReturnValue().Set(Nan::Undefined());
 }
 
 NAN_METHOD(GetDeviceList) {
+	Nan::HandleScope scope;
 	libusb_device **devs;
 	int cnt = libusb_get_device_list(usb_context, &devs);
 	CHECK_USB(cnt);
@@ -114,13 +118,13 @@ NAN_METHOD(GetDeviceList) {
 	info.GetReturnValue().Set(arr);
 }
 
-Nan::Persistent<v8::Object> hotplugThis;
+Nan::Persistent<Object> hotplugThis;
 
-void handleHotplug(std::pair<libusb_device*, libusb_hotplug_event> args){
+void handleHotplug(std::pair<libusb_device*, libusb_hotplug_event> info){
 	Nan::HandleScope scope;
 
-	libusb_device* dev = args.first;
-	libusb_hotplug_event event = args.second;
+	libusb_device* dev = info.first;
+	libusb_hotplug_event event = info.second;
 
 	DEBUG_LOG("HandleHotplug %p %i", dev, event);
 
@@ -158,6 +162,8 @@ int LIBUSB_CALL hotplug_callback(libusb_context *ctx, libusb_device *dev,
 }
 
 NAN_METHOD(EnableHotplugEvents) {
+	Nan::HandleScope scope;
+
 	if (!hotplugEnabled) {
 		hotplugThis.Reset(info.This());
 		CHECK_USB(libusb_hotplug_register_callback(usb_context,
@@ -167,17 +173,20 @@ NAN_METHOD(EnableHotplugEvents) {
 		hotplugQueue.ref();
 		hotplugEnabled = true;
 	}
+	info.GetReturnValue().Set(Nan::Undefined());
 }
 
 NAN_METHOD(DisableHotplugEvents) {
+	Nan::HandleScope scope;
 	if (hotplugEnabled) {
 		libusb_hotplug_deregister_callback(usb_context, hotplugHandle);
 		hotplugQueue.unref();
 		hotplugEnabled = false;
 	}
+	info.GetReturnValue().Set(Nan::Undefined());
 }
 
-void initConstants(Handle<Object> target){
+void initConstants(Local<Object> target){
 	NODE_DEFINE_CONSTANT(target, LIBUSB_CLASS_PER_INTERFACE);
 	NODE_DEFINE_CONSTANT(target, LIBUSB_CLASS_AUDIO);
 	NODE_DEFINE_CONSTANT(target, LIBUSB_CLASS_COMM);
@@ -253,6 +262,34 @@ void initConstants(Handle<Object> target){
 	NODE_DEFINE_CONSTANT(target, LIBUSB_RECIPIENT_OTHER);
 
 	NODE_DEFINE_CONSTANT(target, LIBUSB_CONTROL_SETUP_SIZE);
+
+	// libusb_error
+	// Input/output error
+	NODE_DEFINE_CONSTANT(target, LIBUSB_ERROR_IO);
+	// Invalid parameter
+	NODE_DEFINE_CONSTANT(target, LIBUSB_ERROR_INVALID_PARAM);
+	// Access denied (insufficient permissions)
+	NODE_DEFINE_CONSTANT(target, LIBUSB_ERROR_ACCESS);
+	// No such device (it may have been disconnected)
+	NODE_DEFINE_CONSTANT(target, LIBUSB_ERROR_NO_DEVICE);
+	// Entity not found
+	NODE_DEFINE_CONSTANT(target, LIBUSB_ERROR_NOT_FOUND);
+	// Resource busy
+	NODE_DEFINE_CONSTANT(target, LIBUSB_ERROR_BUSY);
+	// Operation timed out
+	NODE_DEFINE_CONSTANT(target, LIBUSB_ERROR_TIMEOUT);
+	// Overflow
+	NODE_DEFINE_CONSTANT(target, LIBUSB_ERROR_OVERFLOW);
+	// Pipe error
+	NODE_DEFINE_CONSTANT(target, LIBUSB_ERROR_PIPE);
+	// System call interrupted (perhaps due to signal)
+	NODE_DEFINE_CONSTANT(target, LIBUSB_ERROR_INTERRUPTED);
+	// Insufficient memory
+	NODE_DEFINE_CONSTANT(target, LIBUSB_ERROR_NO_MEM);
+	// Operation not supported or unimplemented on this platform
+	NODE_DEFINE_CONSTANT(target, LIBUSB_ERROR_NOT_SUPPORTED);
+	// Other error
+	NODE_DEFINE_CONSTANT(target, LIBUSB_ERROR_OTHER);
 }
 
 Local<Value> libusbException(int errorno) {

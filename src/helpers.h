@@ -14,11 +14,12 @@ using namespace v8;
 
 const PropertyAttribute CONST_PROP = static_cast<PropertyAttribute>(ReadOnly|DontDelete);
 
-inline static void setConst(Handle<Object> obj, const char* const name, Handle<Value> value){
+inline static void setConst(Local<Object> obj, const char* const name, Local<Value> value){
 	obj->ForceSet(Nan::New<String>(name).ToLocalChecked(), value, CONST_PROP);
 }
 
 #define ENTER_CONSTRUCTOR(MIN_ARGS) \
+	Nan::HandleScope scope;              \
 	if (!info.IsConstructCall()) return Nan::ThrowError("Must be called with `new`!"); \
 	CHECK_N_ARGS(MIN_ARGS);
 
@@ -31,17 +32,19 @@ inline static void setConst(Handle<Object> obj, const char* const name, Handle<V
 	self->attach(info.This())
 
 #define ENTER_METHOD(CLASS, MIN_ARGS) \
+	Nan::HandleScope scope;                \
 	CHECK_N_ARGS(MIN_ARGS);           \
-	auto self = node::ObjectWrap::Unwrap<CLASS>(info.This()); \
+	auto self = Nan::ObjectWrap::Unwrap<CLASS>(info.This()); \
 	if (self == NULL) { THROW_BAD_ARGS(#CLASS " method called on invalid object") }
 
 #define ENTER_ACCESSOR(CLASS) \
-		auto self = node::ObjectWrap::Unwrap<CLASS>(info.Holder());
+		Nan::HandleScope scope;                \
+		auto self = Nan::ObjectWrap::Unwrap<CLASS>(info.Holder());
 
 #define UNWRAP_ARG(CLASS, NAME, ARGNO)     \
 	if (!info[ARGNO]->IsObject())          \
 		THROW_BAD_ARGS("Parameter " #NAME " is not an object"); \
-	auto NAME = node::ObjectWrap::Unwrap<CLASS>(Handle<Object>::Cast(info[ARGNO])); \
+	auto NAME = Nan::ObjectWrap::Unwrap<CLASS>(Local<Object>::Cast(info[ARGNO])); \
 	if (!NAME)                             \
 		THROW_BAD_ARGS("Parameter " #NAME " (" #ARGNO ") is of incorrect type");
 
