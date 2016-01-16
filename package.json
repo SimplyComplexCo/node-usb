@@ -34,7 +34,7 @@
     "url": "https://github.com/nonolith/node-usb.git"
   },
   "scripts": {
-    "install": "node-pre-gyp rebuild --target=0.34.2 --arch=x64 --dist-url=https://atom.io/download/ --runtime=electron",
+    "install": "node-pre-gyp rebuild --target=0.36.4 --arch=x64 --dist-url=https://atom.io/download/ --runtime=electron",
     "test": "mocha --compilers coffee:coffee-script --grep Module",
     "full-test": "mocha --compilers coffee:coffee-script",
     "valgrind": "coffee -c test/usb.coffee; valgrind --leak-check=full --show-possibly-lost=no node --expose-gc --trace-gc node_modules/mocha/bin/_mocha -R spec"
