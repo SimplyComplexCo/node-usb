@@ -47,7 +47,7 @@
   },
   "dependencies": {
     "nan": "^2.1.0",
-    "node-pre-gyp": "github:enlight/node-pre-gyp#detect-electron-runtime-in-find",
+    "node-pre-gyp": "^0.6.13"
   },
   "bundledDependencies": [
     "node-pre-gyp"
