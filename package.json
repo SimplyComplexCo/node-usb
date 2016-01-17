@@ -47,12 +47,12 @@
   },
   "dependencies": {
     "nan": "^2.1.0",
+    "node-pre-gyp": "github:enlight/node-pre-gyp#detect-electron-runtime-in-find",
   },
   "bundledDependencies": [
     "node-pre-gyp"
   ],
   "devDependencies": {
-    "node-pre-gyp": "github:enlight/node-pre-gyp#detect-electron-runtime-in-find",
     "coffee-script": "~1.6.2",
     "mocha": "~1.8.2",
     "aws-sdk": "~2.0.0-rc.15"
