@@ -47,11 +47,8 @@
   },
   "dependencies": {
     "nan": "^2.1.0",
-    "node-pre-gyp": "^0.6.19"
+    "node-pre-gyp": "enlight:node-pre-gyp#detect-electron-runtime-in-find"
   },
-  "bundledDependencies": [
-    "node-pre-gyp"
-  ],
   "devDependencies": {
     "coffee-script": "~1.6.2",
     "mocha": "~1.8.2",
