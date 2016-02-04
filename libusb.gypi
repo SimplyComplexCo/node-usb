@@ -119,7 +119,7 @@
           ],
           'defines': [
             'HAVE_STRUCT_TIMESPEC',
-          ]
+          ],
           'include_dirs!': [
             'libusb_config',
           ],
